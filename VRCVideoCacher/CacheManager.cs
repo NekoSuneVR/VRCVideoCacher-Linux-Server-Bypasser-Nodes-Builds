@@ -8,6 +8,7 @@ public class CacheManager
 {
     private static readonly ILogger Log = Program.Logger.ForContext<CacheManager>();
     private static readonly ConcurrentDictionary<string, VideoCache> CachedAssets = new();
+    private static CancellationTokenSource? _evictCts;
     public static readonly string CachePath;
 
     static CacheManager()
@@ -38,6 +39,7 @@ public class CacheManager
     public static void Init()
     {
         TryFlushCache();
+        StartEvictionThread();
     }
     
     private static void BuildCache()
@@ -96,6 +98,59 @@ public class CacheManager
         existingCache.LastModified = fileInfo.LastWriteTimeUtc;
         
         TryFlushCache();
+    }
+
+    private static void StartEvictionThread()
+    {
+        var intervalMinutes = ConfigManager.Config.CacheEvictIntervalMinutes;
+        var idleMinutes = ConfigManager.Config.CacheEvictUnusedMinutes;
+        if (intervalMinutes <= 0 || idleMinutes <= 0)
+            return;
+
+        _evictCts?.Cancel();
+        _evictCts = new CancellationTokenSource();
+        var token = _evictCts.Token;
+        var interval = TimeSpan.FromMinutes(intervalMinutes);
+        var maxIdle = TimeSpan.FromMinutes(idleMinutes);
+
+        Task.Run(async () =>
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(interval, token);
+                }
+                catch (TaskCanceledException)
+                {
+                    break;
+                }
+
+                try
+                {
+                    EvictUnused(maxIdle);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning("Failed to evict unused cache: {Error}", ex.Message);
+                }
+            }
+        }, token);
+    }
+
+    private static void EvictUnused(TimeSpan maxIdle)
+    {
+        var cutoff = DateTime.UtcNow - maxIdle;
+        foreach (var cache in CachedAssets.ToArray())
+        {
+            if (cache.Value.LastModified >= cutoff)
+                continue;
+
+            var filePath = Path.Combine(CachePath, cache.Value.FileName);
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+            CachedAssets.TryRemove(cache.Key, out _);
+        }
     }
     
     private static long GetCacheSize()

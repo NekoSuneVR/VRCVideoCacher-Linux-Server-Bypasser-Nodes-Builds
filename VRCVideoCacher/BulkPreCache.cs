@@ -108,5 +108,6 @@ public class BulkPreCache
             File.SetCreationTimeUtc(fileInfo.FilePath, fileInfo.LastModifiedDate);
             File.SetLastAccessTimeUtc(fileInfo.FilePath, fileInfo.LastModifiedDate);
         }
+        CacheManager.AddToCache(fileInfo.FileName);
     }
 }

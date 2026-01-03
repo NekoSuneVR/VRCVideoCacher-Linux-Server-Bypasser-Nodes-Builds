@@ -62,7 +62,10 @@ internal static class Program
             AutoStartShortcut.TryUpdateShortcutPath();
         WebServer.Init();
         FileTools.BackupAllYtdl();
-        await BulkPreCache.DownloadFileList();
+        var skipLocalCache = ConfigManager.Config.RemoteServerEnabled &&
+                             ConfigManager.Config.RemoteServerDisableLocalCache;
+        if (!skipLocalCache)
+            await BulkPreCache.DownloadFileList();
 
         if (ConfigManager.Config.ytdlUseCookies && !IsCookiesEnabledAndValid())
             Logger.Warning("No cookies found, please use the browser extension to send cookies or disable \"ytdlUseCookies\" in config.");

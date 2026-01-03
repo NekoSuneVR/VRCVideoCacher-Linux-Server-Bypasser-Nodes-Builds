@@ -17,22 +17,25 @@ public class WebServer
         if (!File.Exists(indexPath))
             File.WriteAllText(indexPath, "VRCVideoCacher");
         
-        _server = CreateWebServer(ConfigManager.Config.ytdlWebServerURL);
+        _server = CreateWebServer();
         _server.RunAsync();  
     }
     
-    private static EmbedIO.WebServer CreateWebServer(string url)
+    private static EmbedIO.WebServer CreateWebServer()
     {
         Logger.UnregisterLogger<ConsoleLogger>();
         Logger.RegisterLogger<WebServerLogger>();
 
-        var urls = new List<string>
+        var urls = new List<string>();
+        if (ConfigManager.Config.WebServerBindUrls.Length > 0)
         {
-            "http://localhost:9696",
-            "http://127.0.0.1:9696"
-        };
-        if (!urls.Contains(url))
-            urls.Add(url);
+            urls.AddRange(ConfigManager.Config.WebServerBindUrls);
+        }
+        else
+        {
+            urls.Add("http://localhost:9696");
+            urls.Add("http://127.0.0.1:9696");
+        }
         
         var server = new EmbedIO.WebServer(o => o
                 .WithUrlPrefixes(urls)

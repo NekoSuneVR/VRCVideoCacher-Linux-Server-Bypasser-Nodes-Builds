@@ -30,6 +30,24 @@ public class ConfigManager
         }
         if (Config.ytdlWebServerURL.EndsWith('/'))
             Config.ytdlWebServerURL = Config.ytdlWebServerURL.TrimEnd('/');
+        if (!string.IsNullOrWhiteSpace(Config.YouTubePoTokenUrl))
+            Config.YouTubePoTokenUrl = Config.YouTubePoTokenUrl.Trim().TrimEnd('/');
+        Config.RemoteServerUrls ??= [];
+        Config.WebServerBindUrls ??= [];
+        if (Config.RemoteServerUrls.Length > 0)
+        {
+            Config.RemoteServerUrls = Config.RemoteServerUrls
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Select(url => url.Trim().TrimEnd('/'))
+                .ToArray();
+        }
+        if (Config.WebServerBindUrls.Length > 0)
+        {
+            Config.WebServerBindUrls = Config.WebServerBindUrls
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .Select(url => url.Trim().TrimEnd('/'))
+                .ToArray();
+        }
 
         UtilsPath = Path.GetDirectoryName(Config.ytdlPath) ?? string.Empty;
         if (!UtilsPath.EndsWith("Utils"))
@@ -106,19 +124,29 @@ public class ConfigModel
     public string ytdlAdditionalArgs = string.Empty;
     public string ytdlDubLanguage = string.Empty;
     public int ytdlDelay = 0;
+    public string YouTubePoTokenUrl = "";
     public string CachedAssetPath = "";
+    public string[] WebServerBindUrls = [];
     public string[] BlockedUrls = ["https://na2.vrdancing.club/sampleurl.mp4"];
     public string BlockRedirect = "https://www.youtube.com/watch?v=byv2bKekeWQ";
     public bool CacheYouTube = true;
     public int CacheYouTubeMaxResolution = 2160;
     public int CacheYouTubeMaxLength = 120;
     public float CacheMaxSizeInGb = 0;
+    public int CacheEvictUnusedMinutes = 0;
+    public int CacheEvictIntervalMinutes = 0;
     public bool CachePyPyDance = true;
     public bool CacheVRDancing = true;
     public bool PatchResonite = false;
     public bool PatchVRC = true;
     public bool AutoUpdate = true;
     public string[] PreCacheUrls = [];
+    public bool RemoteServerEnabled = false;
+    public bool RemoteServerYouTubeOnly = true;
+    public bool RemoteServerFallbackToLocal = false;
+    public bool RemoteServerDisableLocalCache = true;
+    public int RemoteServerTimeoutSeconds = 15;
+    public string[] RemoteServerUrls = [];
     
 }
 // ReSharper restore InconsistentNaming

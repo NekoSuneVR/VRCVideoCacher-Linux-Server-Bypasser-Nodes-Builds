@@ -10,6 +10,12 @@ namespace VRCVideoCacher.API;
 public class ApiController : WebApiController
 {
     private static readonly Serilog.ILogger Log = Program.Logger.ForContext<ApiController>();
+
+    [Route(HttpVerbs.Get, "/ping")]
+    public async Task Ping()
+    {
+        await HttpContext.SendStringAsync("ok", "text/plain", Encoding.UTF8);
+    }
     
     [Route(HttpVerbs.Post, "/youtube-cookies")]
     public async Task ReceiveYoutubeCookies()

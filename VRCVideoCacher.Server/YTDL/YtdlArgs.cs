@@ -15,6 +15,6 @@ public static class YtdlArgs
             return string.Empty;
         }
 
-        return $"--extractor-args \"youtubepot-bgutilhttp:base_url={baseUrl}\"";
+        return $"--extractor-args youtubepot-bgutilhttp:base_url={baseUrl}";
     }
 }

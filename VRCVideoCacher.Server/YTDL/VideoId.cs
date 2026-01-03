@@ -17,6 +17,16 @@ public class VideoId
     };
     private static readonly string[] YouTubeHosts = ["youtube.com", "youtu.be", "www.youtube.com", "m.youtube.com", "music.youtube.com"];
     private static readonly Regex YoutubeRegex = new(@"(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|live\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})");
+    private static readonly string[] YouTubePlayerClients =
+    [
+        "web",
+        "web_safari",
+        "android",
+        "android_creator",
+        "android_embedded",
+        "tv_embedded",
+        "web_music"
+    ];
 
     private static bool IsYouTubeUrl(string url)
     {
@@ -39,6 +49,17 @@ public class VideoId
             .Replace("/", "")
             .Replace("+", "")
             .Replace("=", "");
+    }
+
+    private static bool IsLoginRequired(string error)
+    {
+        return error.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase) ||
+               error.Contains("LOGIN_REQUIRED", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetPlayerClientArgs(string client)
+    {
+        return $"--extractor-args \"youtube:player_client={client}\"";
     }
     
     public static async Task<VideoInfo?> GetVideoId(string url, bool avPro)
@@ -141,37 +162,49 @@ public class VideoId
         if (Program.IsCookiesEnabledAndValid())
             cookieArg = $"--cookies \"{YtdlManager.CookiesPath}\"";
 
-        var process = new Process
+        var lastError = string.Empty;
+        foreach (var client in YouTubePlayerClients)
         {
-            StartInfo =
+            var playerArgs = GetPlayerClientArgs(client);
+            var process = new Process
             {
-                FileName = YtdlManager.YtdlPath,
-                Arguments = $"--encoding utf-8 --no-playlist --no-warnings {potArgs} {additionalArgs} {cookieArg} -j \"{url}\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
+                StartInfo =
+                {
+                    FileName = YtdlManager.YtdlPath,
+                    Arguments = $"--encoding utf-8 --no-playlist --no-warnings {playerArgs} {potArgs} {additionalArgs} {cookieArg} -j \"{url}\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8,
+                }
+            };
+            process.Start();
+            var rawData = await process.StandardOutput.ReadToEndAsync();
+            var error = await process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            if (process.ExitCode != 0)
+            {
+                lastError = error.Trim();
+                if (IsLoginRequired(lastError))
+                    continue;
+                throw new Exception($"Failed to get video ID: {lastError}");
             }
-        };
-        process.Start();
-        var rawData = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-        if (process.ExitCode != 0)
-            throw new Exception($"Failed to get video ID: {error.Trim()}");
-        if (string.IsNullOrEmpty(rawData))
-            throw new Exception("Failed to get video ID");
-        var data = JsonConvert.DeserializeObject<dynamic>(rawData);
-        if (data is null || data.id is null || data.duration is null)
-            throw new Exception("Failed to get video ID");
-        if (data.is_live is true)
-            throw new Exception("Failed to get video ID: Video is a stream");
-        if (data.duration > ConfigManager.Config.CacheYouTubeMaxLength * 60)
-            throw new Exception($"Failed to get video ID: Video is longer than configured max length ({data.duration / 60}/{ConfigManager.Config.CacheYouTubeMaxLength})");
+            if (string.IsNullOrEmpty(rawData))
+                throw new Exception("Failed to get video ID");
+            var data = JsonConvert.DeserializeObject<dynamic>(rawData);
+            if (data is null || data.id is null || data.duration is null)
+                throw new Exception("Failed to get video ID");
+            if (data.is_live is true)
+                throw new Exception("Failed to get video ID: Video is a stream");
+            if (data.duration > ConfigManager.Config.CacheYouTubeMaxLength * 60)
+                throw new Exception($"Failed to get video ID: Video is longer than configured max length ({data.duration / 60}/{ConfigManager.Config.CacheYouTubeMaxLength})");
         
-        return data.id;
+            return data.id;
+        }
+
+        throw new Exception($"Failed to get video ID: {lastError}");
     }
 
     public static async Task<string> GetURLResonite(string url)
@@ -202,7 +235,8 @@ public class VideoId
         var languageArg = string.IsNullOrEmpty(ConfigManager.Config.ytdlDubLanguage)
             ? string.Empty
             : $" -f [language={ConfigManager.Config.ytdlDubLanguage}]";
-        process.StartInfo.Arguments = $"--flat-playlist -i -J -s --no-playlist {languageArg} --impersonate=\"safari\" --extractor-args=\"youtube:player_client=web\" {potArgs} --no-warnings {cookieArg} {additionalArgs} {url}";
+        var playerArgs = GetPlayerClientArgs("web");
+        process.StartInfo.Arguments = $"--flat-playlist -i -J -s --no-playlist {languageArg} --impersonate=\"safari\" {playerArgs} {potArgs} --no-warnings {cookieArg} {additionalArgs} {url}";
 
         process.Start();
         var output = await process.StandardOutput.ReadToEndAsync();
@@ -214,7 +248,7 @@ public class VideoId
         
         if (process.ExitCode != 0)
         {
-            if (error.Contains("Sign in to confirm you’re not a bot"))
+            if (error.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase))
                 Log.Error("Fix this error by following these instructions: https://github.com/clienthax/VRCVideoCacherBrowserExtension");
 
             return string.Empty;
@@ -228,12 +262,6 @@ public class VideoId
 
         return  output;
     }
-    
-    // High bitrate video (1080)
-    // https://www.youtube.com/watch?v=DzQwWlbnZvo
-
-    // 4k video
-    // https://www.youtube.com/watch?v=i1csLh-0L9E
 
     public static async Task<Tuple<string, bool>> GetUrl(VideoInfo videoInfo, bool avPro)
     {
@@ -250,6 +278,24 @@ public class VideoId
             return new Tuple<string, bool>(message, false);
         }
 
+        if (videoInfo.UrlType != UrlType.YouTube)
+            return await GetUrlWithClient(videoInfo, avPro, string.Empty);
+
+        Tuple<string, bool>? lastResult = null;
+        foreach (var client in YouTubePlayerClients)
+        {
+            lastResult = await GetUrlWithClient(videoInfo, avPro, client);
+            if (lastResult.Item2)
+                return lastResult;
+            if (!IsLoginRequired(lastResult.Item1))
+                break;
+        }
+
+        return lastResult ?? new Tuple<string, bool>("Failed to get URL.", false);
+    }
+
+    private static async Task<Tuple<string, bool>> GetUrlWithClient(VideoInfo videoInfo, bool avPro, string client)
+    {
         var process = new Process
         {
             StartInfo =
@@ -271,6 +317,7 @@ public class VideoId
         var cookieArg = string.Empty;
         if (Program.IsCookiesEnabledAndValid())
             cookieArg = $"--cookies \"{YtdlManager.CookiesPath}\"";
+        var playerArgs = string.IsNullOrEmpty(client) ? string.Empty : GetPlayerClientArgs(client);
         
         var languageArg = string.IsNullOrEmpty(ConfigManager.Config.ytdlDubLanguage)
             ? string.Empty
@@ -278,11 +325,11 @@ public class VideoId
         
         if (avPro)
         {
-            process.StartInfo.Arguments = $"--encoding utf-8 -f \"(mp4/best)[height<=?1080][height>=?64][width>=?64]{languageArg}\" --impersonate=\"safari\" --extractor-args=\"youtube:player_client=web\" {potArgs} --no-playlist --no-warnings {cookieArg} {additionalArgs} --get-url \"{url}\"";
+            process.StartInfo.Arguments = $"--encoding utf-8 -f \"(mp4/best)[height<=?1080][height>=?64][width>=?64]{languageArg}\" --impersonate=\"safari\" {playerArgs} {potArgs} --no-playlist --no-warnings {cookieArg} {additionalArgs} --get-url \"{url}\"";
         }
         else
         {
-            process.StartInfo.Arguments = $"--encoding utf-8 -f \"(mp4/best)[vcodec!=av01][vcodec!=vp9.2][height<=?1080][height>=?64][width>=?64][protocol^=http]\" {potArgs} --no-playlist --no-warnings {cookieArg} {additionalArgs} --get-url \"{url}\"";
+            process.StartInfo.Arguments = $"--encoding utf-8 -f \"(mp4/best)[vcodec!=av01][vcodec!=vp9.2][height<=?1080][height>=?64][width>=?64][protocol^=http]\" {playerArgs} {potArgs} --no-playlist --no-warnings {cookieArg} {additionalArgs} --get-url \"{url}\"";
         }
         
         process.Start();
@@ -295,7 +342,7 @@ public class VideoId
         
         if (process.ExitCode != 0)
         {
-            if (error.Contains("Sign in to confirm you’re not a bot"))
+            if (error.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase))
                 Log.Error("Fix this error by following these instructions: https://github.com/clienthax/VRCVideoCacherBrowserExtension");
 
             return new Tuple<string, bool>(error, false);

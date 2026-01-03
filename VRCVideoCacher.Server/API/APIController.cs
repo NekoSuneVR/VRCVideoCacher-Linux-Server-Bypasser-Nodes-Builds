@@ -24,16 +24,6 @@ public class ApiController : WebApiController
             return;
         }
 
-        if (RemoteServerProxy.IsEnabled)
-        {
-            var (success, status, body) = await RemoteServerProxy.SendCookies(cookies);
-            HttpContext.Response.StatusCode = status;
-            await HttpContext.SendStringAsync(body, "text/plain", Encoding.UTF8);
-            if (!success)
-                Log.Warning("Failed to forward cookies to remote server.");
-            return;
-        }
-        
         await File.WriteAllTextAsync(YtdlManager.CookiesPath, cookies);
 
         HttpContext.Response.StatusCode = 200;
@@ -80,40 +70,15 @@ public class ApiController : WebApiController
             return;
         }
 
-        var useRemote = RemoteServerProxy.IsEnabled &&
-                        (!ConfigManager.Config.RemoteServerYouTubeOnly || videoInfo.UrlType == UrlType.YouTube);
-        if (useRemote)
+        var (isCached, filePath, fileName) = GetCachedFile(videoInfo.VideoId, avPro);
+        if (isCached)
         {
-            var (remoteSuccess, status, body) = await RemoteServerProxy.GetVideo(requestUrl, avPro, source);
-            if (remoteSuccess)
-            {
-                Log.Information("Responding with Remote URL: {URL}", body);
-                await HttpContext.SendStringAsync(body, "text/plain", Encoding.UTF8);
-                return;
-            }
-
-            if (!ConfigManager.Config.RemoteServerFallbackToLocal)
-            {
-                HttpContext.Response.StatusCode = status;
-                await HttpContext.SendStringAsync(body, "text/plain", Encoding.UTF8);
-                return;
-            }
-        }
-
-        var skipLocalCache = ConfigManager.Config.RemoteServerEnabled &&
-                             ConfigManager.Config.RemoteServerDisableLocalCache;
-        if (!skipLocalCache)
-        {
-            var (isCached, filePath, fileName) = GetCachedFile(videoInfo.VideoId, avPro);
-            if (isCached)
-            {
-                File.SetLastWriteTimeUtc(filePath, DateTime.UtcNow);
-                CacheManager.AddToCache(fileName);
-                var url = $"{ConfigManager.Config.ytdlWebServerURL}/{fileName}";
-                Log.Information("Responding with Cached URL: {URL}", url);
-                await HttpContext.SendStringAsync(url, "text/plain", Encoding.UTF8);
-                return;
-            }
+            File.SetLastWriteTimeUtc(filePath, DateTime.UtcNow);
+            CacheManager.AddToCache(fileName);
+            var url = $"{ConfigManager.Config.ytdlWebServerURL}/{fileName}";
+            Log.Information("Responding with Cached URL: {URL}", url);
+            await HttpContext.SendStringAsync(url, "text/plain", Encoding.UTF8);
+            return;
         }
 
         if (string.IsNullOrEmpty(videoInfo.VideoId))
@@ -176,12 +141,9 @@ public class ApiController : WebApiController
         Log.Information("Responding with URL: {URL}", response);
         await HttpContext.SendStringAsync(response, "text/plain", Encoding.UTF8);
         // check if file is cached again to handle race condition
-        if (!skipLocalCache)
-        {
-            var (isCached, _, _) = GetCachedFile(videoInfo.VideoId, avPro);
-            if (!isCached)
-                VideoDownloader.QueueDownload(videoInfo);
-        }
+        (isCached, _, _) = GetCachedFile(videoInfo.VideoId, avPro);
+        if (!isCached)
+            VideoDownloader.QueueDownload(videoInfo);
     }
 
     private static (bool isCached, string filePath, string fileName) GetCachedFile(string videoId, bool avPro)

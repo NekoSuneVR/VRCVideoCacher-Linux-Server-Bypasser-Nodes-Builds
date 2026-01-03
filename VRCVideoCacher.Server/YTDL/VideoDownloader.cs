@@ -74,6 +74,12 @@ public class VideoDownloader
 
     private static async Task DownloadYouTubeVideo(VideoInfo videoInfo)
     {
+        if (string.IsNullOrEmpty(YtdlManager.YtdlPath))
+        {
+            Log.Error("yt-dlp not found. Set ytdlPath in Config.json or install yt-dlp in PATH.");
+            return;
+        }
+
         var url = videoInfo.VideoUrl;
         string? videoId;
         try

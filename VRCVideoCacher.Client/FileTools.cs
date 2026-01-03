@@ -16,25 +16,44 @@ public class FileTools
 
     static FileTools()
     {
-        YtdlPathReso = $"{GetResonitePath()}\\steamapps\\common\\Resonite\\RuntimeData\\yt-dlp.exe";
-        BackupPathReso = $"{GetResonitePath()}\\steamapps\\common\\Resonite\\RuntimeData\\yt-dlp.exe.bkp";
-
-        string localLowPath;
         if (OperatingSystem.IsWindows())
-        { 
-            localLowPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low";
+        {
+            YtdlPathReso = $"{GetResonitePath()}\\steamapps\\common\\Resonite\\RuntimeData\\yt-dlp.exe";
+            BackupPathReso = $"{GetResonitePath()}\\steamapps\\common\\Resonite\\RuntimeData\\yt-dlp.exe.bkp";
+
+            var localLowPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + "Low";
+            YtdlPathVrc = Path.Join(localLowPath, "VRChat/VRChat/Tools/yt-dlp.exe");
+            BackupPathVrc = Path.Join(localLowPath, "VRChat/VRChat/Tools/yt-dlp.exe.bkp");
+            return;
         }
-        else if (OperatingSystem.IsLinux())
-        { 
-            var compatPath = GetCompatPath("438100") ?? throw new Exception("Unable to find VRChat compat data"); 
-            localLowPath = Path.Join(compatPath, "pfx/drive_c/users/steamuser/AppData/LocalLow");
+
+        if (OperatingSystem.IsLinux())
+        {
+            YtdlPathReso = string.Empty;
+            BackupPathReso = string.Empty;
+
+            if (ConfigManager.Config.PatchVRC)
+            {
+                var compatPath = GetCompatPath("438100");
+                if (compatPath == null)
+                {
+                    Log.Error("Unable to find VRChat compat data, skipping patch.");
+                    YtdlPathVrc = string.Empty;
+                    BackupPathVrc = string.Empty;
+                    return;
+                }
+                var localLowPath = Path.Join(compatPath, "pfx/drive_c/users/steamuser/AppData/LocalLow");
+                YtdlPathVrc = Path.Join(localLowPath, "VRChat/VRChat/Tools/yt-dlp.exe");
+                BackupPathVrc = Path.Join(localLowPath, "VRChat/VRChat/Tools/yt-dlp.exe.bkp");
+                return;
+            }
+
+            YtdlPathVrc = string.Empty;
+            BackupPathVrc = string.Empty;
+            return;
         }
-        else
-        { 
-            throw new NotImplementedException("Unknown platform");
-        }
-        YtdlPathVrc = Path.Join(localLowPath, "VRChat/VRChat/Tools/yt-dlp.exe");
-        BackupPathVrc = Path.Join(localLowPath, "VRChat/VRChat/Tools/yt-dlp.exe.bkp");
+
+        throw new NotImplementedException("Unknown platform");
     }
 
     private static string? GetResonitePath()
@@ -143,20 +162,24 @@ public class FileTools
 
     public static void BackupAllYtdl()
     {
-        if (ConfigManager.Config.PatchVRC)
+        if (ConfigManager.Config.PatchVRC && !string.IsNullOrEmpty(YtdlPathVrc))
             BackupAndReplaceYtdl(YtdlPathVrc, BackupPathVrc);
-        if (ConfigManager.Config.PatchResonite)
+        if (ConfigManager.Config.PatchResonite && !string.IsNullOrEmpty(YtdlPathReso))
             BackupAndReplaceYtdl(YtdlPathReso, BackupPathReso);
     }
 
     public static void RestoreAllYtdl()
     {
-        RestoreYtdl(YtdlPathVrc, BackupPathVrc);
-        RestoreYtdl(YtdlPathReso, BackupPathReso);
+        if (!string.IsNullOrEmpty(YtdlPathVrc))
+            RestoreYtdl(YtdlPathVrc, BackupPathVrc);
+        if (!string.IsNullOrEmpty(YtdlPathReso))
+            RestoreYtdl(YtdlPathReso, BackupPathReso);
     }
 
     private static void BackupAndReplaceYtdl(string ytdlPath, string backupPath)
     {
+        if (string.IsNullOrEmpty(ytdlPath))
+            return;
         if (!Directory.Exists(Path.GetDirectoryName(ytdlPath) ?? string.Empty))
         {
             Log.Error("YT-DLP directory does not exist, Game may not be installed. {path}", ytdlPath);
@@ -190,6 +213,8 @@ public class FileTools
 
     private static void RestoreYtdl(string ytdlPath, string backupPath)
     {
+        if (string.IsNullOrEmpty(ytdlPath))
+            return;
         if (!File.Exists(backupPath))
             return;
         

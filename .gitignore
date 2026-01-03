@@ -1,8 +1,10 @@
-VRCVideoCacher/bin
-VRCVideoCacher/obj
 yt-dlp-stub/bin
 yt-dlp-stub/obj
 .idea/
 .vscode/
 *.DotSettings*
 Build/
+VRCVideoCacher.Server/obj/
+VRCVideoCacher.Client/obj/
+VRCVideoCacher.Server/bin/
+VRCVideoCacher.Client/bin/

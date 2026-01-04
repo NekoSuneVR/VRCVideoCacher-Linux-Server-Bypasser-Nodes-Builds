@@ -132,10 +132,12 @@ public class VideoDownloader
                 ? "+ba[acodec=opus][ext=webm]"
                 : $"+(ba[acodec=opus][ext=webm][language={ConfigManager.Config.ytdlDubLanguage}]/ba[acodec=opus][ext=webm])";
         
-            var audioArgPotato = string.IsNullOrEmpty(ConfigManager.Config.ytdlDubLanguage)
-                ? "+ba[ext=m4a]"
-                : $"+(ba[ext=m4a][language={ConfigManager.Config.ytdlDubLanguage}]/ba[ext=m4a])";
+        var audioArgPotato = string.IsNullOrEmpty(ConfigManager.Config.ytdlDubLanguage)
+            ? "+ba[ext=m4a]"
+            : $"+(ba[ext=m4a][language={ConfigManager.Config.ytdlDubLanguage}]/ba[ext=m4a])";
 
+        async Task<(int ExitCode, string Error)> RunDownloadAsync(string args)
+        {
             var process = new Process
             {
                 StartInfo =
@@ -147,30 +149,42 @@ public class VideoDownloader
                     CreateNoWindow = true,
                     StandardOutputEncoding = Encoding.UTF8,
                     StandardErrorEncoding = Encoding.UTF8,
+                    Arguments = args
                 }
             };
-        
-            if (videoInfo.DownloadFormat == DownloadFormat.Webm)
-            {
-                process.StartInfo.Arguments = $"--encoding utf-8 -q -o \"{TempDownloadWebmPath}\" -f \"bv*[height<={ConfigManager.Config.CacheYouTubeMaxResolution}][vcodec~='^av01'][ext=mp4][dynamic_range='SDR']{audioArg}/bv*[height<={ConfigManager.Config.CacheYouTubeMaxResolution}][vcodec~='vp9'][ext=webm][dynamic_range='SDR']{audioArg}\" --no-mtime --no-playlist --no-progress {potArgs} {cookieArg} {additionalArgs} -- \"{videoId}\"";
-            }
-            else
-            {
-                process.StartInfo.Arguments = $"--encoding utf-8 -q -o \"{TempDownloadMp4Path}\" -f \"bv*[height<=1080][vcodec~='^(avc|h264)']{audioArgPotato}/bv*[height<=1080][vcodec~='^av01'][dynamic_range='SDR']\" --no-mtime --no-playlist --remux-video mp4 --no-progress {potArgs} {cookieArg} {additionalArgs} -- \"{videoId}\"";
-            }
-
             process.Start();
             await process.WaitForExitAsync();
-            var error = await process.StandardError.ReadToEndAsync();
-            error = error.Trim();
-            if (process.ExitCode != 0)
-            {
-                Log.Error("Failed to download YouTube Video: {exitCode} {URL} {error}", process.ExitCode, url, error);
-                if (error.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase))
-                    Log.Error("Fix this error by following these instructions: https://github.com/clienthax/VRCVideoCacherBrowserExtension");
+            var err = await process.StandardError.ReadToEndAsync();
+            return (process.ExitCode, err.Trim());
+        }
+
+        string primaryArgs;
+        string fallbackArgs;
+        if (videoInfo.DownloadFormat == DownloadFormat.Webm)
+        {
+            primaryArgs = $"--encoding utf-8 -q -o \"{TempDownloadWebmPath}\" -f \"bv*[height<={ConfigManager.Config.CacheYouTubeMaxResolution}][vcodec~='^av01'][ext=mp4][dynamic_range='SDR']{audioArg}/bv*[height<={ConfigManager.Config.CacheYouTubeMaxResolution}][vcodec~='vp9'][ext=webm][dynamic_range='SDR']{audioArg}\" --no-mtime --no-playlist --no-progress {potArgs} {cookieArg} {additionalArgs} -- \"{videoId}\"";
+            fallbackArgs = $"--encoding utf-8 -q -o \"{TempDownloadWebmPath}\" -f \"bestvideo[ext=webm]+bestaudio[ext=webm]/best[ext=webm]/best\" --merge-output-format webm --no-mtime --no-playlist --no-progress {potArgs} {cookieArg} {additionalArgs} -- \"{videoId}\"";
+        }
+        else
+        {
+            primaryArgs = $"--encoding utf-8 -q -o \"{TempDownloadMp4Path}\" -f \"bv*[height<=1080][vcodec~='^(avc|h264)']{audioArgPotato}/bv*[height<=1080][vcodec~='^av01'][dynamic_range='SDR']\" --no-mtime --no-playlist --remux-video mp4 --no-progress {potArgs} {cookieArg} {additionalArgs} -- \"{videoId}\"";
+            fallbackArgs = $"--encoding utf-8 -q -o \"{TempDownloadMp4Path}\" -f \"bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\" --merge-output-format mp4 --no-mtime --no-playlist --no-progress {potArgs} {cookieArg} {additionalArgs} -- \"{videoId}\"";
+        }
+
+        var (exitCode, error) = await RunDownloadAsync(primaryArgs);
+        if (exitCode != 0 && error.Contains("Requested format is not available", StringComparison.OrdinalIgnoreCase))
+        {
+            Log.Warning("Requested format not available, retrying with fallback.");
+            (exitCode, error) = await RunDownloadAsync(fallbackArgs);
+        }
+        if (exitCode != 0)
+        {
+            Log.Error("Failed to download YouTube Video: {exitCode} {URL} {error}", exitCode, url, error);
+            if (error.Contains("Sign in to confirm", StringComparison.OrdinalIgnoreCase))
+                Log.Error("Fix this error by following these instructions: https://github.com/clienthax/VRCVideoCacherBrowserExtension");
             
-                return null;
-            }
+            return null;
+        }
             Thread.Sleep(100);
         
             if (File.Exists(filePath))
